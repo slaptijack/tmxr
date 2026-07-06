@@ -40,6 +40,47 @@ Each PR should:
 
 Behavioral changes should include examples in the documentation.
 
+### Pull request titles
+
+Pull request titles MUST use:
+
+`<type>(<scope>): <summary>`
+
+Where `<type>` is one of:
+
+- `feat` — user-visible feature
+- `fix` — bug fix
+- `docs` — documentation-only change
+- `refactor` — internal restructuring without behavior change
+- `test` — test-only change
+- `chore` — maintenance
+- `build` — build system or dependency change
+- `ci` — GitHub Actions or automation
+- `perf` — performance improvement
+- `revert` — revert a previous change
+
+`<scope>` should be a short area name, such as:
+
+- `cli`
+- `tmux`
+- `session`
+- `config`
+- `docs`
+- `release`
+- `ci`
+- `tests`
+
+The `<summary>` should be imperative, concise, lower-case unless using a proper noun, and should not end with punctuation.
+
+Examples:
+
+- `feat(cli): add session picker command`
+- `fix(tmux): handle missing server socket`
+- `docs(readme): document installation flow`
+- `test(session): cover detached session reuse`
+- `ci(github): add pull request checks`
+- `chore(release): prepare initial version`
+
 ## Code Review
 
 Reviews focus on:
