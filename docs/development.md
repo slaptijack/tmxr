@@ -24,6 +24,8 @@ Required checks:
 - `cargo test --all-targets --all-features`
 - `shellcheck` for shell scripts
 
+Run `scripts/check.sh` to perform all of the above locally in one step.
+
 ## Principles
 
 Prefer:

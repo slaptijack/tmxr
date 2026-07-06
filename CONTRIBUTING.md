@@ -27,6 +27,9 @@ All changes should:
 - include tests when appropriate
 - update documentation if behavior changes
 
+Run `scripts/check.sh` before opening or updating a pull request to run the
+same checks as CI.
+
 ## Pull Requests
 
 Small pull requests are preferred.
