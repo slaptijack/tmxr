@@ -27,6 +27,9 @@ When modifying release tooling or CI, also read:
 
 These documents are considered part of the repository instructions.
 
+Before proposing a significant or hard-to-reverse architectural change,
+check `docs/adr/` for an existing decision on the topic.
+
 ## Goals
 
 Agents should optimize for:
