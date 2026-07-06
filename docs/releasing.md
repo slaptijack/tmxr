@@ -36,5 +36,12 @@ owns that field exclusively.
 
 The `release-plz` GitHub Actions workflow
 (`.github/workflows/release-plz.yml`) runs this automatically on every push
-to `main`, opening or updating a release PR with the computed version bump
-and changelog. It does not publish to crates.io.
+to `main`, via two jobs:
+
+- `release-plz-pr` opens or updates a release PR with the computed version
+  bump and changelog.
+- `release-plz-release` creates the git tag and GitHub Release once that
+  release PR is merged. On ordinary feature/fix pushes, where the version
+  hasn't changed, this job is a no-op.
+
+Neither job publishes to crates.io.
