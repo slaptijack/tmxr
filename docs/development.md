@@ -9,6 +9,21 @@ tmxr should be:
 - cross-platform
 - easy to understand
 
+## Build system
+
+tmxr uses Cargo as the canonical build system.
+
+Bazel is intentionally not required for this repository. Contributors should
+be able to clone the repo and use standard Rust tooling without additional
+project infrastructure.
+
+Required checks:
+
+- `cargo fmt --check`
+- `cargo clippy --all-targets --all-features -- -D warnings`
+- `cargo test --all-targets --all-features`
+- `shellcheck` for shell scripts
+
 ## Principles
 
 Prefer:
