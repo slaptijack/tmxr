@@ -13,7 +13,24 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release-plz:
+  release-plz-release:
+    name: release-plz release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: release-plz/action@v0.5.130
+        with:
+          command: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
+
+  release-plz-pr:
+    name: release-plz release-pr
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
