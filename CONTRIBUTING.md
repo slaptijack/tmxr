@@ -97,3 +97,7 @@ Please avoid introducing abstractions before they are needed.
 
 A small amount of duplication is often preferable to unnecessary
 generalization.
+
+Significant architectural decisions are recorded in
+[`docs/adr/`](docs/adr/README.md). Check there before revisiting a settled
+question, and propose new decisions there following the same process.
