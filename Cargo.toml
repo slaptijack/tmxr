@@ -1,0 +1,12 @@
+[package]
+name = "tmxr"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "tmxr"
+path = "src/main.rs"
+
+[lib]
+name = "tmxr"
+path = "src/lib.rs"
