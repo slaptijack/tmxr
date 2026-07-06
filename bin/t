@@ -4,8 +4,7 @@ SESSION="FOO"
 
 tmux start-server
 
-tmux has-session -t ${SESSION} 2>/dev/null
-if [ $? != 0 ]; then
+if ! tmux has-session -t ${SESSION} 2>/dev/null; then
 	tmux -2 new-session -d -x "$(tput cols)" -y "$(tput lines)" -s ${SESSION}
 
 	tmux selectp -t 0
