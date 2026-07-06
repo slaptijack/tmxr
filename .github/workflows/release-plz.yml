@@ -22,8 +22,10 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # The default GITHUB_TOKEN can't open PRs (GitHub blocks Actions-created
+      # PRs by default); use a PAT with pull-request scope instead.
       - uses: release-plz/action@v0.5.130
         with:
           command: release-pr
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
