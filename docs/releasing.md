@@ -44,4 +44,17 @@ to `main`, via two jobs:
   release PR is merged. On ordinary feature/fix pushes, where the version
   hasn't changed, this job is a no-op.
 
-Neither job publishes to crates.io.
+`release-plz-release` also runs `cargo publish` as part of creating the
+GitHub Release, authenticated via the `CARGO_REGISTRY_TOKEN` repository
+secret. `release-plz-pr` only opens/updates the release PR and does not
+publish anything.
+
+### crates.io token
+
+`CARGO_REGISTRY_TOKEN` is a crates.io API token scoped to publish the
+`tmxr` crate, stored as a GitHub Actions repository secret. To rotate it:
+
+1. Generate a new token on crates.io (Account Settings → API Tokens).
+2. Update the `CARGO_REGISTRY_TOKEN` repository secret in GitHub with the
+   new value.
+3. Revoke the old token on crates.io.
