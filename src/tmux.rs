@@ -39,6 +39,23 @@ pub fn check_tmux(runner: &dyn CommandRunner) -> TmuxStatus {
     }
 }
 
+/// Parses the `major.minor` version numbers out of `tmux -V` output
+/// (e.g. `"tmux 3.4"` or `"tmux 3.4a"`). Ignores any trailing letter
+/// suffix on the minor component and any further dotted components.
+/// Returns `None` if the string doesn't match the expected shape.
+pub fn parse_tmux_version(version: &str) -> Option<(u32, u32)> {
+    let rest = version.strip_prefix("tmux ")?;
+    let mut parts = rest.split('.');
+    let major: u32 = parts.next()?.parse().ok()?;
+    let minor_field = parts.next()?;
+    let minor_digits: String = minor_field
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    let minor: u32 = minor_digits.parse().ok()?;
+    Some((major, minor))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -108,5 +125,45 @@ mod tests {
         };
 
         assert_eq!(check_tmux(&runner), TmuxStatus::NotFound);
+    }
+
+    #[test]
+    fn parses_plain_major_minor() {
+        assert_eq!(parse_tmux_version("tmux 3.4"), Some((3, 4)));
+    }
+
+    #[test]
+    fn parses_minor_with_trailing_letter() {
+        assert_eq!(parse_tmux_version("tmux 3.4a"), Some((3, 4)));
+    }
+
+    #[test]
+    fn parses_older_version_with_letter() {
+        assert_eq!(parse_tmux_version("tmux 2.9a"), Some((2, 9)));
+    }
+
+    #[test]
+    fn parses_version_with_extra_dotted_component() {
+        assert_eq!(parse_tmux_version("tmux 3.4.1"), Some((3, 4)));
+    }
+
+    #[test]
+    fn rejects_missing_prefix() {
+        assert_eq!(parse_tmux_version("3.4"), None);
+    }
+
+    #[test]
+    fn rejects_missing_minor() {
+        assert_eq!(parse_tmux_version("tmux 3"), None);
+    }
+
+    #[test]
+    fn rejects_non_numeric_major() {
+        assert_eq!(parse_tmux_version("tmux x.4"), None);
+    }
+
+    #[test]
+    fn rejects_empty_string() {
+        assert_eq!(parse_tmux_version(""), None);
     }
 }
