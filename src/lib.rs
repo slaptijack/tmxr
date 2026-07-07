@@ -2,6 +2,7 @@
 
 pub mod cli;
 pub mod doctor;
+pub mod session;
 pub mod tmux;
 
 /// Returns the greeting `tmxr` prints on startup.

@@ -13,4 +13,7 @@ pub struct Cli {
 pub enum Commands {
     /// Check the local environment for tmxr's requirements.
     Doctor,
+    /// Attach to the tmux session for the current directory, creating it
+    /// if it doesn't already exist.
+    Start,
 }
