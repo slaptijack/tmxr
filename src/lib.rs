@@ -1,5 +1,9 @@
 //! Core library for tmxr, kept independent of the CLI entry point.
 
+pub mod cli;
+pub mod doctor;
+pub mod tmux;
+
 /// Returns the greeting `tmxr` prints on startup.
 pub fn greeting() -> &'static str {
     "tmxr: opinionated tmux workspace launcher"
