@@ -10,3 +10,6 @@ path = "src/main.rs"
 [lib]
 name = "tmxr"
 path = "src/lib.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
