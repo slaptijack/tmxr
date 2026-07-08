@@ -35,7 +35,10 @@ pub fn session_exists(runner: &dyn CommandRunner, name: &str) -> Result<bool, St
 /// Creates a detached tmux session named `name` rooted at `dir`.
 pub fn create_session(runner: &dyn CommandRunner, name: &str, dir: &Path) -> Result<(), String> {
     let dir_str = dir.to_string_lossy();
-    match runner.run("tmux", &["new-session", "-d", "-s", name, "-c", &dir_str]) {
+    match runner.run(
+        "tmux",
+        &["new-session", "-2", "-d", "-s", name, "-c", &dir_str],
+    ) {
         Ok(output) if output.status.success() => Ok(()),
         Ok(output) => Err(format!(
             "tmux failed to create session '{name}': {}",
@@ -74,14 +77,14 @@ impl SessionAttacher for SystemSessionAttacher {
     fn attach(&self, name: &str) -> io::Error {
         use std::os::unix::process::CommandExt;
         Command::new("tmux")
-            .args(["attach-session", "-t", name])
+            .args(["attach-session", "-2", "-t", name])
             .exec()
     }
 
     #[cfg(not(unix))]
     fn attach(&self, name: &str) -> io::Error {
         match Command::new("tmux")
-            .args(["attach-session", "-t", name])
+            .args(["attach-session", "-2", "-t", name])
             .status()
         {
             Ok(_) => io::Error::other("tmux attach-session exited"),
@@ -208,6 +211,18 @@ mod tests {
     fn create_session_ok_when_new_session_succeeds() {
         let runner = ScriptedRunner::new(vec![Ok(success_output())]);
         assert_eq!(create_session(&runner, "tmxr", Path::new("/tmp")), Ok(()));
+    }
+
+    #[test]
+    fn create_session_forces_256_color_support() {
+        let runner = ScriptedRunner::new(vec![Ok(success_output())]);
+        create_session(&runner, "tmxr", Path::new("/tmp")).unwrap();
+        let calls = runner.calls.borrow();
+        assert!(
+            calls[0].contains(&"-2".to_string()),
+            "expected -2 in new-session args, got {:?}",
+            calls[0]
+        );
     }
 
     #[test]
