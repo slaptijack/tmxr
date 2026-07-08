@@ -1,6 +1,7 @@
 //! Core library for tmxr, kept independent of the CLI entry point.
 
 pub mod cli;
+pub mod completions;
 pub mod doctor;
 pub mod session;
 pub mod tmux;

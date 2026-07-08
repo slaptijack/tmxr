@@ -20,6 +20,10 @@ fn main() -> ExitCode {
             }
         },
         Some(Commands::Start) | None => start_session(),
+        Some(Commands::Completions { shell }) => {
+            tmxr::completions::write(shell, &mut std::io::stdout());
+            ExitCode::SUCCESS
+        }
     }
 }
 

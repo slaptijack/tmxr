@@ -16,4 +16,9 @@ pub enum Commands {
     /// Attach to the tmux session for the current directory, creating it
     /// if it doesn't already exist.
     Start,
+    /// Print a shell completion script for the given shell.
+    Completions {
+        /// Shell to generate completions for.
+        shell: clap_complete::Shell,
+    },
 }
