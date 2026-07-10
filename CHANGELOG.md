@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/slaptijack/tmxr/compare/v0.1.0...v0.2.0) - 2026-07-10
+
+### Added
+
+- *(session)* size new sessions to the current terminal ([#47](https://github.com/slaptijack/tmxr/pull/47))
+- *(session)* force 256-color terminal support on session create/attach ([#46](https://github.com/slaptijack/tmxr/pull/46))
+- *(cli)* add shell completion support ([#45](https://github.com/slaptijack/tmxr/pull/45))
+- *(cli)* check for minimum supported tmux version in doctor ([#43](https://github.com/slaptijack/tmxr/pull/43))
+
 ## [0.1.0](https://github.com/slaptijack/tmxr/releases/tag/v0.1.0) - 2026-07-06
 
 ### Other
