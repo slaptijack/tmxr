@@ -4,6 +4,7 @@ pub mod cli;
 pub mod completions;
 pub mod doctor;
 pub mod session;
+pub mod terminal;
 pub mod tmux;
 
 /// Returns the greeting `tmxr` prints on startup.
