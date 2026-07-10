@@ -4,6 +4,7 @@ use std::io;
 use std::path::Path;
 use std::process::Command;
 
+use crate::terminal::TerminalSizeProvider;
 use crate::tmux::CommandRunner;
 
 /// Derives a stable tmux session name from a directory path.
@@ -33,12 +34,28 @@ pub fn session_exists(runner: &dyn CommandRunner, name: &str) -> Result<bool, St
 }
 
 /// Creates a detached tmux session named `name` rooted at `dir`.
-pub fn create_session(runner: &dyn CommandRunner, name: &str, dir: &Path) -> Result<(), String> {
+///
+/// When `size` is `Some((cols, rows))`, the session's initial window is
+/// sized to match, avoiding a visible resize/redraw when a client first
+/// attaches. When `None`, tmux falls back to its own default sizing.
+pub fn create_session(
+    runner: &dyn CommandRunner,
+    name: &str,
+    dir: &Path,
+    size: Option<(u16, u16)>,
+) -> Result<(), String> {
     let dir_str = dir.to_string_lossy();
-    match runner.run(
-        "tmux",
-        &["new-session", "-2", "-d", "-s", name, "-c", &dir_str],
-    ) {
+    let cols_str;
+    let rows_str;
+    let mut args = vec!["new-session", "-2", "-d", "-s", name];
+    if let Some((cols, rows)) = size {
+        cols_str = cols.to_string();
+        rows_str = rows.to_string();
+        args.extend(["-x", &cols_str, "-y", &rows_str]);
+    }
+    args.extend(["-c", &dir_str]);
+
+    match runner.run("tmux", &args) {
         Ok(output) if output.status.success() => Ok(()),
         Ok(output) => Err(format!(
             "tmux failed to create session '{name}': {}",
@@ -50,11 +67,15 @@ pub fn create_session(runner: &dyn CommandRunner, name: &str, dir: &Path) -> Res
 
 /// Derives the session name for `dir`, creating the session if it doesn't
 /// already exist. Returns the session name either way.
-pub fn ensure_session(runner: &dyn CommandRunner, dir: &Path) -> Result<String, String> {
+pub fn ensure_session(
+    runner: &dyn CommandRunner,
+    dir: &Path,
+    size_provider: &dyn TerminalSizeProvider,
+) -> Result<String, String> {
     let name = derive_session_name(dir);
 
     if !session_exists(runner, &name)? {
-        create_session(runner, &name, dir)?;
+        create_session(runner, &name, dir, size_provider.size())?;
     }
 
     Ok(name)
@@ -98,9 +119,10 @@ impl SessionAttacher for SystemSessionAttacher {
 pub fn run(
     runner: &dyn CommandRunner,
     attacher: &dyn SessionAttacher,
+    size_provider: &dyn TerminalSizeProvider,
     dir: &Path,
 ) -> Result<(), String> {
-    let name = ensure_session(runner, dir)?;
+    let name = ensure_session(runner, dir, size_provider)?;
     Err(format!(
         "failed to attach to session '{name}': {}",
         attacher.attach(&name)
@@ -210,13 +232,16 @@ mod tests {
     #[test]
     fn create_session_ok_when_new_session_succeeds() {
         let runner = ScriptedRunner::new(vec![Ok(success_output())]);
-        assert_eq!(create_session(&runner, "tmxr", Path::new("/tmp")), Ok(()));
+        assert_eq!(
+            create_session(&runner, "tmxr", Path::new("/tmp"), None),
+            Ok(())
+        );
     }
 
     #[test]
     fn create_session_forces_256_color_support() {
         let runner = ScriptedRunner::new(vec![Ok(success_output())]);
-        create_session(&runner, "tmxr", Path::new("/tmp")).unwrap();
+        create_session(&runner, "tmxr", Path::new("/tmp"), None).unwrap();
         let calls = runner.calls.borrow();
         assert!(
             calls[0].contains(&"-2".to_string()),
@@ -226,9 +251,30 @@ mod tests {
     }
 
     #[test]
+    fn create_session_passes_size_when_provided() {
+        let runner = ScriptedRunner::new(vec![Ok(success_output())]);
+        create_session(&runner, "tmxr", Path::new("/tmp"), Some((80, 24))).unwrap();
+        let calls = runner.calls.borrow();
+        let call = &calls[0];
+        assert!(call.contains(&"-x".to_string()));
+        assert!(call.contains(&"80".to_string()));
+        assert!(call.contains(&"-y".to_string()));
+        assert!(call.contains(&"24".to_string()));
+    }
+
+    #[test]
+    fn create_session_omits_size_when_not_provided() {
+        let runner = ScriptedRunner::new(vec![Ok(success_output())]);
+        create_session(&runner, "tmxr", Path::new("/tmp"), None).unwrap();
+        let calls = runner.calls.borrow();
+        assert!(!calls[0].contains(&"-x".to_string()));
+        assert!(!calls[0].contains(&"-y".to_string()));
+    }
+
+    #[test]
     fn create_session_surfaces_stderr_on_failure() {
         let runner = ScriptedRunner::new(vec![Ok(failure_output("duplicate session"))]);
-        let err = create_session(&runner, "tmxr", Path::new("/tmp")).unwrap_err();
+        let err = create_session(&runner, "tmxr", Path::new("/tmp"), None).unwrap_err();
         assert!(err.contains("duplicate session"));
         assert!(err.contains("tmxr"));
     }
@@ -239,13 +285,24 @@ mod tests {
             io::ErrorKind::NotFound,
             "no such file",
         ))]);
-        assert!(create_session(&runner, "tmxr", Path::new("/tmp")).is_err());
+        assert!(create_session(&runner, "tmxr", Path::new("/tmp"), None).is_err());
+    }
+
+    struct FakeSizeProvider {
+        size: Option<(u16, u16)>,
+    }
+
+    impl TerminalSizeProvider for FakeSizeProvider {
+        fn size(&self) -> Option<(u16, u16)> {
+            self.size
+        }
     }
 
     #[test]
     fn ensure_session_reuses_existing_session_without_creating() {
         let runner = ScriptedRunner::new(vec![Ok(success_output())]);
-        let name = ensure_session(&runner, Path::new("/home/user/tmxr")).unwrap();
+        let size_provider = FakeSizeProvider { size: None };
+        let name = ensure_session(&runner, Path::new("/home/user/tmxr"), &size_provider).unwrap();
         assert_eq!(name, "tmxr");
         assert_eq!(runner.call_count(), 1, "should not call new-session");
     }
@@ -253,7 +310,8 @@ mod tests {
     #[test]
     fn ensure_session_creates_when_missing() {
         let runner = ScriptedRunner::new(vec![Ok(failure_output("")), Ok(success_output())]);
-        let name = ensure_session(&runner, Path::new("/home/user/tmxr")).unwrap();
+        let size_provider = FakeSizeProvider { size: None };
+        let name = ensure_session(&runner, Path::new("/home/user/tmxr"), &size_provider).unwrap();
         assert_eq!(name, "tmxr");
         let calls = runner.calls.borrow();
         assert_eq!(calls.len(), 2);
@@ -262,12 +320,25 @@ mod tests {
     }
 
     #[test]
+    fn ensure_session_passes_size_through_to_create_session() {
+        let runner = ScriptedRunner::new(vec![Ok(failure_output("")), Ok(success_output())]);
+        let size_provider = FakeSizeProvider {
+            size: Some((80, 24)),
+        };
+        ensure_session(&runner, Path::new("/home/user/tmxr"), &size_provider).unwrap();
+        let calls = runner.calls.borrow();
+        assert!(calls[1].contains(&"-x".to_string()));
+        assert!(calls[1].contains(&"80".to_string()));
+    }
+
+    #[test]
     fn ensure_session_propagates_tmux_failure() {
         let runner = ScriptedRunner::new(vec![Err(io::Error::new(
             io::ErrorKind::NotFound,
             "no such file",
         ))]);
-        assert!(ensure_session(&runner, Path::new("/home/user/tmxr")).is_err());
+        let size_provider = FakeSizeProvider { size: None };
+        assert!(ensure_session(&runner, Path::new("/home/user/tmxr"), &size_provider).is_err());
     }
 
     struct FakeAttacher {
@@ -293,8 +364,15 @@ mod tests {
     fn run_attaches_to_existing_session() {
         let runner = ScriptedRunner::new(vec![Ok(success_output())]);
         let attacher = FakeAttacher::new();
+        let size_provider = FakeSizeProvider { size: None };
 
-        let err = run(&runner, &attacher, Path::new("/home/user/tmxr")).unwrap_err();
+        let err = run(
+            &runner,
+            &attacher,
+            &size_provider,
+            Path::new("/home/user/tmxr"),
+        )
+        .unwrap_err();
 
         assert_eq!(*attacher.attached_to.borrow(), Some("tmxr".to_string()));
         assert!(err.contains("tmxr"));
@@ -304,8 +382,15 @@ mod tests {
     fn run_creates_then_attaches_when_session_missing() {
         let runner = ScriptedRunner::new(vec![Ok(failure_output("")), Ok(success_output())]);
         let attacher = FakeAttacher::new();
+        let size_provider = FakeSizeProvider { size: None };
 
-        run(&runner, &attacher, Path::new("/home/user/tmxr")).unwrap_err();
+        run(
+            &runner,
+            &attacher,
+            &size_provider,
+            Path::new("/home/user/tmxr"),
+        )
+        .unwrap_err();
 
         assert_eq!(*attacher.attached_to.borrow(), Some("tmxr".to_string()));
     }
@@ -317,8 +402,15 @@ mod tests {
             "no such file",
         ))]);
         let attacher = FakeAttacher::new();
+        let size_provider = FakeSizeProvider { size: None };
 
-        let err = run(&runner, &attacher, Path::new("/home/user/tmxr")).unwrap_err();
+        let err = run(
+            &runner,
+            &attacher,
+            &size_provider,
+            Path::new("/home/user/tmxr"),
+        )
+        .unwrap_err();
 
         assert!(attacher.attached_to.borrow().is_none());
         assert!(err.contains("failed to run tmux"));

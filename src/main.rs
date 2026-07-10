@@ -3,6 +3,7 @@ use std::process::ExitCode;
 use clap::Parser;
 use tmxr::cli::{Cli, Commands};
 use tmxr::session::SystemSessionAttacher;
+use tmxr::terminal::SystemTerminalSize;
 use tmxr::tmux::SystemCommandRunner;
 
 fn main() -> ExitCode {
@@ -36,7 +37,12 @@ fn start_session() -> ExitCode {
         }
     };
 
-    match tmxr::session::run(&SystemCommandRunner, &SystemSessionAttacher, &dir) {
+    match tmxr::session::run(
+        &SystemCommandRunner,
+        &SystemSessionAttacher,
+        &SystemTerminalSize,
+        &dir,
+    ) {
         Ok(()) => ExitCode::SUCCESS,
         Err(message) => {
             eprintln!("{message}");
