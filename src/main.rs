@@ -37,11 +37,20 @@ fn start_session() -> ExitCode {
         }
     };
 
+    let config = match tmxr::config::load_config(&tmxr::config::SystemConfigLocator, &dir) {
+        Ok(config) => config,
+        Err(message) => {
+            eprintln!("{message}");
+            return ExitCode::FAILURE;
+        }
+    };
+
     match tmxr::session::run(
         &SystemCommandRunner,
         &SystemSessionAttacher,
         &SystemTerminalSize,
         &dir,
+        config.as_ref(),
     ) {
         Ok(()) => ExitCode::SUCCESS,
         Err(message) => {

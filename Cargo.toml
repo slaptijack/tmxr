@@ -17,6 +17,8 @@ path = "src/lib.rs"
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
