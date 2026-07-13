@@ -47,7 +47,7 @@ pub fn create_session(
     let dir_str = dir.to_string_lossy();
     let cols_str;
     let rows_str;
-    let mut args = vec!["new-session", "-2", "-d", "-s", name];
+    let mut args = vec!["-2", "new-session", "-d", "-s", name];
     if let Some((cols, rows)) = size {
         cols_str = cols.to_string();
         rows_str = rows.to_string();
@@ -110,21 +110,24 @@ pub trait SessionAttacher {
 /// A `SessionAttacher` that execs the real `tmux attach-session`.
 pub struct SystemSessionAttacher;
 
+/// Builds the argument list for attaching to `name`.
+///
+/// `-2` is a global tmux client flag and must precede the subcommand, or
+/// tmux rejects it with "unknown flag -2" (verified on tmux 3.7b).
+fn attach_args(name: &str) -> [&str; 4] {
+    ["-2", "attach-session", "-t", name]
+}
+
 impl SessionAttacher for SystemSessionAttacher {
     #[cfg(unix)]
     fn attach(&self, name: &str) -> io::Error {
         use std::os::unix::process::CommandExt;
-        Command::new("tmux")
-            .args(["attach-session", "-2", "-t", name])
-            .exec()
+        Command::new("tmux").args(attach_args(name)).exec()
     }
 
     #[cfg(not(unix))]
     fn attach(&self, name: &str) -> io::Error {
-        match Command::new("tmux")
-            .args(["attach-session", "-2", "-t", name])
-            .status()
-        {
+        match Command::new("tmux").args(attach_args(name)).status() {
             Ok(_) => io::Error::other("tmux attach-session exited"),
             Err(e) => e,
         }
@@ -214,11 +217,14 @@ mod tests {
         let runner = ScriptedRunner::new(vec![Ok(success_output())]);
         create_session(&runner, "tmxr", Path::new("/tmp"), None).unwrap();
         let calls = runner.calls();
-        assert!(
-            calls[0].contains(&"-2".to_string()),
-            "expected -2 in new-session args, got {:?}",
+        // -2 is a global tmux flag and must precede the subcommand, or
+        // tmux rejects it with "unknown flag -2" (verified on tmux 3.7b).
+        assert_eq!(
+            calls[0][0], "-2",
+            "expected -2 before new-session subcommand, got {:?}",
             calls[0]
         );
+        assert_eq!(calls[0][1], "new-session");
     }
 
     #[test]
@@ -289,7 +295,8 @@ mod tests {
         let calls = runner.calls();
         assert_eq!(calls.len(), 2);
         assert_eq!(calls[0][0], "has-session");
-        assert_eq!(calls[1][0], "new-session");
+        assert_eq!(calls[1][0], "-2");
+        assert_eq!(calls[1][1], "new-session");
     }
 
     #[test]
@@ -312,6 +319,13 @@ mod tests {
         ))]);
         let size_provider = FakeSizeProvider { size: None };
         assert!(ensure_session(&runner, Path::new("/home/user/tmxr"), &size_provider).is_err());
+    }
+
+    #[test]
+    fn attach_args_puts_256_color_flag_before_subcommand() {
+        let args = attach_args("tmxr");
+        assert_eq!(args[0], "-2");
+        assert_eq!(args[1], "attach-session");
     }
 
     struct FakeAttacher {
@@ -418,7 +432,8 @@ mod tests {
         let calls = runner.calls();
         assert_eq!(calls.len(), 3);
         assert_eq!(calls[0][0], "has-session");
-        assert_eq!(calls[1][0], "new-session");
+        assert_eq!(calls[1][0], "-2");
+        assert_eq!(calls[1][1], "new-session");
         assert_eq!(calls[2][0], "select-pane");
         assert_eq!(*attacher.attached_to.borrow(), Some("tmxr".to_string()));
     }
