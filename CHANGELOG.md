@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/slaptijack/tmxr/compare/v0.2.0...v0.3.0) - 2026-07-13
+
+### Added
+
+- *(config)* support per-project config for post-create session setup ([#49](https://github.com/slaptijack/tmxr/pull/49))
+
+### Fixed
+
+- *(session)* pass tmux -2 flag before subcommand ([#51](https://github.com/slaptijack/tmxr/pull/51))
+
+### Other
+
+- Close ADR 0003's deferred config limitations before release ([#55](https://github.com/slaptijack/tmxr/pull/55))
+- *(tmux)* add smoke test against pinned tmux 3.0 ([#54](https://github.com/slaptijack/tmxr/pull/54))
+- *(ci)* add Dependabot for github-actions ecosystem ([#53](https://github.com/slaptijack/tmxr/pull/53))
+- *(scripts)* remove bin/t now that tmxr covers its behavior ([#52](https://github.com/slaptijack/tmxr/pull/52))
+
 ## [0.2.0](https://github.com/slaptijack/tmxr/compare/v0.1.0...v0.2.0) - 2026-07-10
 
 ### Added
