@@ -63,17 +63,11 @@ tmux's own scripting. This ADR is about closing that per-project gap.
   `$HOME`. This mirrors `std::env::current_dir()`'s own behavior and
   keeps discovery simple; it's a known limitation, not a bug to fix
   here.
-- Config loading currently happens unconditionally in `main.rs`'s
-  `start_session()`, before `ensure_session` knows whether it will
-  create or reuse a session. This means a broken `.tmxr.toml` blocks
-  *re-attaching* to an already-running session in that directory, not
-  just creating a new one — even though the config would be a no-op on
-  reuse anyway. This was accepted for v1 as the simpler, more
-  predictable behavior (config errors always surface at the same well-
-  defined point). If this proves disruptive in practice, a follow-up
-  could defer loading the config until `ensure_session` confirms
-  creation is actually happening.
-- No global fallback config is supported. Users who want a single
-  default layout for every session should use tmux's own
-  `session-created` hook; a global tmxr-specific fallback is explicitly
-  deferred, not forgotten, should a need for one emerge later.
+- **Resolved**: config loading now happens in `session::run` (see
+  `src/session.rs`), only after `ensure_session` reports
+  `SessionOutcome::Created`. A broken `.tmxr.toml` no longer blocks
+  re-attaching to an already-running session — it only blocks creating a
+  new one, which is when the config would actually apply.
+- **Superseded by [ADR 0004](0004-global-fallback-config.md)**: a global
+  fallback config at `$HOME/.config/tmxr/config.toml` is now supported,
+  consulted only when per-project discovery finds nothing.

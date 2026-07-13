@@ -33,6 +33,10 @@ file at a project's root also applies to its subdirectories. Setup only
 runs when a session is newly created, never when re-attaching to one
 that already exists.
 
+If no per-project `.tmxr.toml` is found, `tmxr` falls back to a global
+config at `~/.config/tmxr/config.toml`, using the same format. A
+project-level `.tmxr.toml` always takes precedence over the global one.
+
 `commands` is an ordered list of steps, applied in sequence:
 
 ```toml

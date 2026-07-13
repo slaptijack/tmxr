@@ -11,6 +11,10 @@ use crate::tmux::CommandRunner;
 /// The filename `discover_config` looks for in each directory it checks.
 pub const CONFIG_FILE_NAME: &str = ".tmxr.toml";
 
+/// The global fallback config's path, relative to `$HOME`, used when no
+/// per-project `.tmxr.toml` is found. See `docs/adr/0004-global-fallback-config.md`.
+pub const GLOBAL_CONFIG_RELATIVE_PATH: &str = ".config/tmxr/config.toml";
+
 /// A parsed `.tmxr.toml`: an ordered list of post-create setup commands.
 #[derive(Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -146,11 +150,22 @@ pub fn discover_config(locator: &dyn ConfigLocator, dir: &Path) -> Option<PathBu
     }
 }
 
-/// Discovers and parses the nearest `.tmxr.toml` for `dir`, if any.
-/// Returns `Ok(None)` when no config file is found. Returns `Err` when a
-/// config file is found but fails to read or parse.
+/// Locates the global fallback config at `$HOME/.config/tmxr/config.toml`,
+/// used when no per-project `.tmxr.toml` is found. Returns `None` if
+/// `$HOME` can't be determined or the file doesn't exist.
+pub fn discover_global_config(locator: &dyn ConfigLocator) -> Option<PathBuf> {
+    let home = locator.home_dir()?;
+    let candidate = home.join(GLOBAL_CONFIG_RELATIVE_PATH);
+    locator.exists(&candidate).then_some(candidate)
+}
+
+/// Discovers and parses the nearest `.tmxr.toml` for `dir`, falling back to
+/// the global config (`$HOME/.config/tmxr/config.toml`) if no per-project
+/// config is found. Returns `Ok(None)` when neither exists. Returns `Err`
+/// when a config file is found but fails to read or parse.
 pub fn load_config(locator: &dyn ConfigLocator, dir: &Path) -> Result<Option<Config>, String> {
-    let Some(path) = discover_config(locator, dir) else {
+    let Some(path) = discover_config(locator, dir).or_else(|| discover_global_config(locator))
+    else {
         return Ok(None);
     };
 
@@ -167,9 +182,7 @@ pub fn load_config(locator: &dyn ConfigLocator, dir: &Path) -> Result<Option<Con
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{ScriptedRunner, failure_output, success_output};
-    use std::cell::RefCell;
-    use std::collections::HashMap;
+    use crate::test_support::{FakeConfigLocator, ScriptedRunner, failure_output, success_output};
 
     #[test]
     fn apply_post_create_setup_issues_no_calls_when_empty() {
@@ -281,46 +294,6 @@ mod tests {
         let err = apply_post_create_setup(&runner, "tmxr", &config).unwrap_err();
         assert!(err.contains("boom"));
         assert_eq!(runner.call_count(), 1, "should not run later commands");
-    }
-
-    /// An in-memory `ConfigLocator` for hermetic discovery/parsing tests.
-    struct FakeConfigLocator {
-        files: RefCell<HashMap<PathBuf, String>>,
-        home: Option<PathBuf>,
-    }
-
-    impl FakeConfigLocator {
-        fn new(home: Option<&str>) -> Self {
-            Self {
-                files: RefCell::new(HashMap::new()),
-                home: home.map(PathBuf::from),
-            }
-        }
-
-        fn with_file(self, path: &str, contents: &str) -> Self {
-            self.files
-                .borrow_mut()
-                .insert(PathBuf::from(path), contents.to_string());
-            self
-        }
-    }
-
-    impl ConfigLocator for FakeConfigLocator {
-        fn exists(&self, path: &Path) -> bool {
-            self.files.borrow().contains_key(path)
-        }
-
-        fn read_to_string(&self, path: &Path) -> io::Result<String> {
-            self.files
-                .borrow()
-                .get(path)
-                .cloned()
-                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no such file"))
-        }
-
-        fn home_dir(&self) -> Option<PathBuf> {
-            self.home.clone()
-        }
     }
 
     #[test]
@@ -489,5 +462,75 @@ direction = "horizontal"
             "[[commands]]\ntype = \"bogus\"\n",
         );
         assert!(load_config(&locator, Path::new("/home/user/project")).is_err());
+    }
+
+    #[test]
+    fn discover_global_config_finds_file_under_home() {
+        let locator = FakeConfigLocator::new(Some("/home/user"))
+            .with_file("/home/user/.config/tmxr/config.toml", "");
+        assert_eq!(
+            discover_global_config(&locator),
+            Some(PathBuf::from("/home/user/.config/tmxr/config.toml"))
+        );
+    }
+
+    #[test]
+    fn discover_global_config_none_when_missing() {
+        let locator = FakeConfigLocator::new(Some("/home/user"));
+        assert_eq!(discover_global_config(&locator), None);
+    }
+
+    #[test]
+    fn discover_global_config_none_when_home_unknown() {
+        let locator =
+            FakeConfigLocator::new(None).with_file("/home/user/.config/tmxr/config.toml", "");
+        assert_eq!(discover_global_config(&locator), None);
+    }
+
+    #[test]
+    fn load_config_falls_back_to_global_config_when_no_project_config() {
+        let locator = FakeConfigLocator::new(Some("/home/user")).with_file(
+            "/home/user/.config/tmxr/config.toml",
+            "[[commands]]\ntype = \"select-pane\"\nindex = 2\n",
+        );
+        let config = load_config(&locator, Path::new("/home/user/project"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            config,
+            Config {
+                commands: vec![Command::SelectPane { index: 2 }],
+            }
+        );
+    }
+
+    #[test]
+    fn load_config_prefers_project_config_over_global_config() {
+        let locator = FakeConfigLocator::new(Some("/home/user"))
+            .with_file(
+                "/home/user/project/.tmxr.toml",
+                "[[commands]]\ntype = \"select-pane\"\nindex = 1\n",
+            )
+            .with_file(
+                "/home/user/.config/tmxr/config.toml",
+                "[[commands]]\ntype = \"select-pane\"\nindex = 2\n",
+            );
+        let config = load_config(&locator, Path::new("/home/user/project"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            config,
+            Config {
+                commands: vec![Command::SelectPane { index: 1 }],
+            }
+        );
+    }
+
+    #[test]
+    fn load_config_reports_path_on_malformed_global_config() {
+        let locator = FakeConfigLocator::new(Some("/home/user"))
+            .with_file("/home/user/.config/tmxr/config.toml", "not valid toml [[[");
+        let err = load_config(&locator, Path::new("/home/user/project")).unwrap_err();
+        assert!(err.contains("/home/user/.config/tmxr/config.toml"));
     }
 }
