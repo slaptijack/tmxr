@@ -30,3 +30,5 @@ distinct error message when the detected version is older than 3.0 (see
   raising or lowering it is a one-line change, but should be deliberate —
   raising it can break existing users, and lowering it needs its own
   justification. Either should update this ADR.
+- CI verifies tmxr's real (non-faked) tmux invocations against this floor;
+  see the "Integration smoke test" section of `docs/testing.md`.
