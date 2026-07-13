@@ -22,7 +22,6 @@ Required checks:
 - `cargo fmt --check`
 - `cargo clippy --all-targets --all-features -- -D warnings`
 - `cargo test --all-targets --all-features`
-- `shellcheck` for shell scripts
 
 Run `scripts/check.sh` to perform all of the above locally in one step.
 
