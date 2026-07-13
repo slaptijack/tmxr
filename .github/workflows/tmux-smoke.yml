@@ -1,0 +1,51 @@
+name: tmux smoke test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  TMUX_VERSION: 3.0a
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache built tmux ${{ env.TMUX_VERSION }}
+        id: tmux-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/tmux-3.0/bin/tmux
+          key: tmux-${{ env.TMUX_VERSION }}-ubuntu-latest-v1
+
+      - name: Install tmux build dependencies
+        if: steps.tmux-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libevent-dev libncurses-dev bison pkg-config
+
+      - name: Build tmux ${{ env.TMUX_VERSION }} from source
+        if: steps.tmux-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o tmux.tar.gz \
+            "https://github.com/tmux/tmux/releases/download/${TMUX_VERSION}/tmux-${TMUX_VERSION}.tar.gz"
+          tar xzf tmux.tar.gz
+          cd "tmux-${TMUX_VERSION}"
+          ./configure --prefix="$HOME/tmux-3.0"
+          make -j"$(nproc)"
+          make install
+
+      - name: Build tmxr
+        run: cargo build --all-features
+
+      - name: Run smoke test
+        run: |
+          export PATH="$HOME/tmux-3.0/bin:$PATH"
+          tmux -V
+          scripts/tmux-smoke-test.sh
