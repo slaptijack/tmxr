@@ -60,8 +60,7 @@ direction = "horizontal"
 ```
 
 This example splits the initial pane into a 15-line pane at the bottom,
-runs `htop` there, then splits the remaining top pane in two — the same
-layout the legacy `bin/t` launcher hardcoded.
+runs `htop` there, then splits the remaining top pane in two.
 
 Note that tmux renumbers pane indices by their position in the layout
 after each split, so a `select-pane` index refers to whatever pane

@@ -26,6 +26,3 @@ jobs:
 
       - name: cargo test
         run: cargo test --all-targets --all-features
-
-      - name: shellcheck
-        run: shellcheck bin/*
