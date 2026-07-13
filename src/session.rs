@@ -135,19 +135,26 @@ impl SessionAttacher for SystemSessionAttacher {
 }
 
 /// Runs the full attach-or-create workflow for `dir`: ensures a session
-/// exists, applies `config`'s post-create setup if the session was newly
-/// created, then attaches to it. Only returns on failure.
+/// exists, loads and applies post-create setup only if the session was
+/// newly created, then attaches to it. Only returns on failure.
+///
+/// Config is loaded via `locator` after `ensure_session` reports its
+/// outcome, not before, so a broken `.tmxr.toml` only blocks *creating* a
+/// session, never re-attaching to one that already exists (see
+/// `docs/adr/0003-per-project-config-discovery.md`).
 pub fn run(
     runner: &dyn CommandRunner,
     attacher: &dyn SessionAttacher,
     size_provider: &dyn TerminalSizeProvider,
+    locator: &dyn crate::config::ConfigLocator,
     dir: &Path,
-    config: Option<&crate::config::Config>,
 ) -> Result<(), String> {
     let outcome = ensure_session(runner, dir, size_provider)?;
 
-    if let (SessionOutcome::Created(name), Some(config)) = (&outcome, config) {
-        crate::config::apply_post_create_setup(runner, name, config)?;
+    if let SessionOutcome::Created(name) = &outcome
+        && let Some(config) = crate::config::load_config(locator, dir)?
+    {
+        crate::config::apply_post_create_setup(runner, name, &config)?;
     }
 
     let name = outcome.name();
@@ -160,9 +167,14 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{Command, Config};
-    use crate::test_support::{ScriptedRunner, failure_output, success_output};
+    use crate::test_support::{FakeConfigLocator, ScriptedRunner, failure_output, success_output};
     use std::cell::RefCell;
+
+    /// A `ConfigLocator` with no `$HOME` and no files, for tests where the
+    /// config outcome doesn't matter.
+    fn no_config_locator() -> FakeConfigLocator {
+        FakeConfigLocator::new(None)
+    }
 
     #[test]
     fn derive_session_name_uses_final_path_component() {
@@ -357,8 +369,8 @@ mod tests {
             &runner,
             &attacher,
             &size_provider,
+            &no_config_locator(),
             Path::new("/home/user/tmxr"),
-            None,
         )
         .unwrap_err();
 
@@ -376,8 +388,8 @@ mod tests {
             &runner,
             &attacher,
             &size_provider,
+            &no_config_locator(),
             Path::new("/home/user/tmxr"),
-            None,
         )
         .unwrap_err();
 
@@ -397,8 +409,8 @@ mod tests {
             &runner,
             &attacher,
             &size_provider,
+            &no_config_locator(),
             Path::new("/home/user/tmxr"),
-            None,
         )
         .unwrap_err();
 
@@ -416,16 +428,17 @@ mod tests {
         ]);
         let attacher = FakeAttacher::new();
         let size_provider = FakeSizeProvider { size: None };
-        let config = Config {
-            commands: vec![Command::SelectPane { index: 1 }],
-        };
+        let locator = FakeConfigLocator::new(Some("/home/user")).with_file(
+            "/home/user/tmxr/.tmxr.toml",
+            "[[commands]]\ntype = \"select-pane\"\nindex = 1\n",
+        );
 
         run(
             &runner,
             &attacher,
             &size_provider,
+            &locator,
             Path::new("/home/user/tmxr"),
-            Some(&config),
         )
         .unwrap_err();
 
@@ -443,21 +456,45 @@ mod tests {
         let runner = ScriptedRunner::new(vec![Ok(success_output())]);
         let attacher = FakeAttacher::new();
         let size_provider = FakeSizeProvider { size: None };
-        let config = Config {
-            commands: vec![Command::SelectPane { index: 1 }],
-        };
+        let locator = FakeConfigLocator::new(Some("/home/user")).with_file(
+            "/home/user/tmxr/.tmxr.toml",
+            "[[commands]]\ntype = \"select-pane\"\nindex = 1\n",
+        );
 
         run(
             &runner,
             &attacher,
             &size_provider,
+            &locator,
             Path::new("/home/user/tmxr"),
-            Some(&config),
         )
         .unwrap_err();
 
         assert_eq!(runner.call_count(), 1, "setup should not run on reuse");
         assert_eq!(*attacher.attached_to.borrow(), Some("tmxr".to_string()));
+    }
+
+    #[test]
+    fn run_does_not_error_on_reuse_despite_malformed_config() {
+        let runner = ScriptedRunner::new(vec![Ok(success_output())]);
+        let attacher = FakeAttacher::new();
+        let size_provider = FakeSizeProvider { size: None };
+        let locator = FakeConfigLocator::new(Some("/home/user"))
+            .with_file("/home/user/tmxr/.tmxr.toml", "not valid toml [[[");
+
+        let err = run(
+            &runner,
+            &attacher,
+            &size_provider,
+            &locator,
+            Path::new("/home/user/tmxr"),
+        )
+        .unwrap_err();
+
+        // Re-attach proceeds (and fails only because FakeAttacher always
+        // fails), not because the malformed config was ever loaded.
+        assert_eq!(*attacher.attached_to.borrow(), Some("tmxr".to_string()));
+        assert!(!err.contains("failed to parse"));
     }
 
     #[test]
@@ -469,16 +506,17 @@ mod tests {
         ]);
         let attacher = FakeAttacher::new();
         let size_provider = FakeSizeProvider { size: None };
-        let config = Config {
-            commands: vec![Command::SelectPane { index: 9 }],
-        };
+        let locator = FakeConfigLocator::new(Some("/home/user")).with_file(
+            "/home/user/tmxr/.tmxr.toml",
+            "[[commands]]\ntype = \"select-pane\"\nindex = 9\n",
+        );
 
         let err = run(
             &runner,
             &attacher,
             &size_provider,
+            &locator,
             Path::new("/home/user/tmxr"),
-            Some(&config),
         )
         .unwrap_err();
 
