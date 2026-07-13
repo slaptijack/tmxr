@@ -2,9 +2,12 @@
 
 pub mod cli;
 pub mod completions;
+pub mod config;
 pub mod doctor;
 pub mod session;
 pub mod terminal;
+#[cfg(test)]
+pub mod test_support;
 pub mod tmux;
 
 /// Returns the greeting `tmxr` prints on startup.

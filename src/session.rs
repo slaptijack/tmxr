@@ -65,20 +65,37 @@ pub fn create_session(
     }
 }
 
+/// Whether `ensure_session` created a new session or reused an existing
+/// one, so callers can gate creation-only behavior (e.g. post-create
+/// setup) without re-querying tmux.
+pub enum SessionOutcome {
+    Created(String),
+    Reused(String),
+}
+
+impl SessionOutcome {
+    pub fn name(&self) -> &str {
+        match self {
+            SessionOutcome::Created(name) | SessionOutcome::Reused(name) => name,
+        }
+    }
+}
+
 /// Derives the session name for `dir`, creating the session if it doesn't
-/// already exist. Returns the session name either way.
+/// already exist. Reports whether it created or reused the session.
 pub fn ensure_session(
     runner: &dyn CommandRunner,
     dir: &Path,
     size_provider: &dyn TerminalSizeProvider,
-) -> Result<String, String> {
+) -> Result<SessionOutcome, String> {
     let name = derive_session_name(dir);
 
-    if !session_exists(runner, &name)? {
-        create_session(runner, &name, dir, size_provider.size())?;
+    if session_exists(runner, &name)? {
+        return Ok(SessionOutcome::Reused(name));
     }
 
-    Ok(name)
+    create_session(runner, &name, dir, size_provider.size())?;
+    Ok(SessionOutcome::Created(name))
 }
 
 /// Abstraction over attaching to a tmux session, so the workflow can be
@@ -115,42 +132,34 @@ impl SessionAttacher for SystemSessionAttacher {
 }
 
 /// Runs the full attach-or-create workflow for `dir`: ensures a session
-/// exists, then attaches to it. Only returns on failure.
+/// exists, applies `config`'s post-create setup if the session was newly
+/// created, then attaches to it. Only returns on failure.
 pub fn run(
     runner: &dyn CommandRunner,
     attacher: &dyn SessionAttacher,
     size_provider: &dyn TerminalSizeProvider,
     dir: &Path,
+    config: Option<&crate::config::Config>,
 ) -> Result<(), String> {
-    let name = ensure_session(runner, dir, size_provider)?;
+    let outcome = ensure_session(runner, dir, size_provider)?;
+
+    if let (SessionOutcome::Created(name), Some(config)) = (&outcome, config) {
+        crate::config::apply_post_create_setup(runner, name, config)?;
+    }
+
+    let name = outcome.name();
     Err(format!(
         "failed to attach to session '{name}': {}",
-        attacher.attach(&name)
+        attacher.attach(name)
     ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{Command, Config};
+    use crate::test_support::{ScriptedRunner, failure_output, success_output};
     use std::cell::RefCell;
-    use std::os::unix::process::ExitStatusExt;
-    use std::process::{ExitStatus, Output};
-
-    fn success_output() -> Output {
-        Output {
-            status: ExitStatus::from_raw(0),
-            stdout: Vec::new(),
-            stderr: Vec::new(),
-        }
-    }
-
-    fn failure_output(stderr: &str) -> Output {
-        Output {
-            status: ExitStatus::from_raw(1 << 8),
-            stdout: Vec::new(),
-            stderr: stderr.as_bytes().to_vec(),
-        }
-    }
 
     #[test]
     fn derive_session_name_uses_final_path_component() {
@@ -168,44 +177,6 @@ mod tests {
     #[test]
     fn derive_session_name_falls_back_when_no_file_name() {
         assert_eq!(derive_session_name(Path::new("/")), "tmxr");
-    }
-
-    /// A `CommandRunner` that plays back a scripted queue of responses and
-    /// records the args it was called with, so multi-call workflows like
-    /// `ensure_session` can be tested.
-    struct ScriptedRunner {
-        responses: RefCell<Vec<io::Result<Output>>>,
-        calls: RefCell<Vec<Vec<String>>>,
-    }
-
-    impl ScriptedRunner {
-        fn new(responses: Vec<io::Result<Output>>) -> Self {
-            Self {
-                responses: RefCell::new(responses),
-                calls: RefCell::new(Vec::new()),
-            }
-        }
-
-        fn call_count(&self) -> usize {
-            self.calls.borrow().len()
-        }
-    }
-
-    impl CommandRunner for ScriptedRunner {
-        fn run(&self, _program: &str, args: &[&str]) -> io::Result<Output> {
-            self.calls
-                .borrow_mut()
-                .push(args.iter().map(|s| s.to_string()).collect());
-
-            let mut responses = self.responses.borrow_mut();
-            if responses.is_empty() {
-                panic!("ScriptedRunner called more times than it has scripted responses");
-            }
-            match responses.remove(0) {
-                Ok(output) => Ok(output),
-                Err(e) => Err(io::Error::new(e.kind(), e.to_string())),
-            }
-        }
     }
 
     #[test]
@@ -242,7 +213,7 @@ mod tests {
     fn create_session_forces_256_color_support() {
         let runner = ScriptedRunner::new(vec![Ok(success_output())]);
         create_session(&runner, "tmxr", Path::new("/tmp"), None).unwrap();
-        let calls = runner.calls.borrow();
+        let calls = runner.calls();
         assert!(
             calls[0].contains(&"-2".to_string()),
             "expected -2 in new-session args, got {:?}",
@@ -254,7 +225,7 @@ mod tests {
     fn create_session_passes_size_when_provided() {
         let runner = ScriptedRunner::new(vec![Ok(success_output())]);
         create_session(&runner, "tmxr", Path::new("/tmp"), Some((80, 24))).unwrap();
-        let calls = runner.calls.borrow();
+        let calls = runner.calls();
         let call = &calls[0];
         assert!(call.contains(&"-x".to_string()));
         assert!(call.contains(&"80".to_string()));
@@ -266,7 +237,7 @@ mod tests {
     fn create_session_omits_size_when_not_provided() {
         let runner = ScriptedRunner::new(vec![Ok(success_output())]);
         create_session(&runner, "tmxr", Path::new("/tmp"), None).unwrap();
-        let calls = runner.calls.borrow();
+        let calls = runner.calls();
         assert!(!calls[0].contains(&"-x".to_string()));
         assert!(!calls[0].contains(&"-y".to_string()));
     }
@@ -302,8 +273,9 @@ mod tests {
     fn ensure_session_reuses_existing_session_without_creating() {
         let runner = ScriptedRunner::new(vec![Ok(success_output())]);
         let size_provider = FakeSizeProvider { size: None };
-        let name = ensure_session(&runner, Path::new("/home/user/tmxr"), &size_provider).unwrap();
-        assert_eq!(name, "tmxr");
+        let outcome =
+            ensure_session(&runner, Path::new("/home/user/tmxr"), &size_provider).unwrap();
+        assert!(matches!(outcome, SessionOutcome::Reused(ref name) if name == "tmxr"));
         assert_eq!(runner.call_count(), 1, "should not call new-session");
     }
 
@@ -311,9 +283,10 @@ mod tests {
     fn ensure_session_creates_when_missing() {
         let runner = ScriptedRunner::new(vec![Ok(failure_output("")), Ok(success_output())]);
         let size_provider = FakeSizeProvider { size: None };
-        let name = ensure_session(&runner, Path::new("/home/user/tmxr"), &size_provider).unwrap();
-        assert_eq!(name, "tmxr");
-        let calls = runner.calls.borrow();
+        let outcome =
+            ensure_session(&runner, Path::new("/home/user/tmxr"), &size_provider).unwrap();
+        assert!(matches!(outcome, SessionOutcome::Created(ref name) if name == "tmxr"));
+        let calls = runner.calls();
         assert_eq!(calls.len(), 2);
         assert_eq!(calls[0][0], "has-session");
         assert_eq!(calls[1][0], "new-session");
@@ -326,7 +299,7 @@ mod tests {
             size: Some((80, 24)),
         };
         ensure_session(&runner, Path::new("/home/user/tmxr"), &size_provider).unwrap();
-        let calls = runner.calls.borrow();
+        let calls = runner.calls();
         assert!(calls[1].contains(&"-x".to_string()));
         assert!(calls[1].contains(&"80".to_string()));
     }
@@ -371,6 +344,7 @@ mod tests {
             &attacher,
             &size_provider,
             Path::new("/home/user/tmxr"),
+            None,
         )
         .unwrap_err();
 
@@ -389,6 +363,7 @@ mod tests {
             &attacher,
             &size_provider,
             Path::new("/home/user/tmxr"),
+            None,
         )
         .unwrap_err();
 
@@ -409,10 +384,90 @@ mod tests {
             &attacher,
             &size_provider,
             Path::new("/home/user/tmxr"),
+            None,
         )
         .unwrap_err();
 
         assert!(attacher.attached_to.borrow().is_none());
         assert!(err.contains("failed to run tmux"));
+    }
+
+    #[test]
+    fn run_applies_post_create_setup_on_creation() {
+        // has-session (fails), new-session, select-pane (setup)
+        let runner = ScriptedRunner::new(vec![
+            Ok(failure_output("")),
+            Ok(success_output()),
+            Ok(success_output()),
+        ]);
+        let attacher = FakeAttacher::new();
+        let size_provider = FakeSizeProvider { size: None };
+        let config = Config {
+            commands: vec![Command::SelectPane { index: 1 }],
+        };
+
+        run(
+            &runner,
+            &attacher,
+            &size_provider,
+            Path::new("/home/user/tmxr"),
+            Some(&config),
+        )
+        .unwrap_err();
+
+        let calls = runner.calls();
+        assert_eq!(calls.len(), 3);
+        assert_eq!(calls[0][0], "has-session");
+        assert_eq!(calls[1][0], "new-session");
+        assert_eq!(calls[2][0], "select-pane");
+        assert_eq!(*attacher.attached_to.borrow(), Some("tmxr".to_string()));
+    }
+
+    #[test]
+    fn run_skips_post_create_setup_on_reuse() {
+        let runner = ScriptedRunner::new(vec![Ok(success_output())]);
+        let attacher = FakeAttacher::new();
+        let size_provider = FakeSizeProvider { size: None };
+        let config = Config {
+            commands: vec![Command::SelectPane { index: 1 }],
+        };
+
+        run(
+            &runner,
+            &attacher,
+            &size_provider,
+            Path::new("/home/user/tmxr"),
+            Some(&config),
+        )
+        .unwrap_err();
+
+        assert_eq!(runner.call_count(), 1, "setup should not run on reuse");
+        assert_eq!(*attacher.attached_to.borrow(), Some("tmxr".to_string()));
+    }
+
+    #[test]
+    fn run_aborts_before_attach_when_post_create_setup_fails() {
+        let runner = ScriptedRunner::new(vec![
+            Ok(failure_output("")),
+            Ok(success_output()),
+            Ok(failure_output("bad pane")),
+        ]);
+        let attacher = FakeAttacher::new();
+        let size_provider = FakeSizeProvider { size: None };
+        let config = Config {
+            commands: vec![Command::SelectPane { index: 9 }],
+        };
+
+        let err = run(
+            &runner,
+            &attacher,
+            &size_provider,
+            Path::new("/home/user/tmxr"),
+            Some(&config),
+        )
+        .unwrap_err();
+
+        assert!(err.contains("bad pane"));
+        assert!(attacher.attached_to.borrow().is_none());
     }
 }
