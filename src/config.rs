@@ -142,10 +142,7 @@ pub fn discover_config(locator: &dyn ConfigLocator, dir: &Path) -> Option<PathBu
         if home.as_deref() == Some(current) {
             return None;
         }
-        match current.parent() {
-            Some(parent) => current = parent,
-            None => return None,
-        }
+        current = current.parent()?;
     }
 }
 
