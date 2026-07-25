@@ -23,7 +23,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: release-plz/action@v0.5.130
+      - uses: release-plz/action@v0.5.131
         with:
           command: release
         env:
@@ -42,7 +42,7 @@ jobs:
 
       # The default GITHUB_TOKEN can't open PRs (GitHub blocks Actions-created
       # PRs by default); use a PAT with pull-request scope instead.
-      - uses: release-plz/action@v0.5.130
+      - uses: release-plz/action@v0.5.131
         with:
           command: release-pr
         env:
